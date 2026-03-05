@@ -142,17 +142,26 @@ else:
 
 df = source_df.copy()
 
+if df.empty:
+    if data_source == "CSV Upload":
+        st.warning("No CSV data available yet. Upload a CSV file from the sidebar.")
+    elif data_source == "Live Sensor":
+        st.warning("No live sensor readings available yet. Ingest at least one reading from the sidebar form.")
+    else:
+        st.warning("No data available for current filters. Please change sidebar filters.")
+    st.stop()
+
+required_columns = {"timestamp", "department", "student_type"}
+missing_columns = sorted(required_columns.difference(df.columns))
+if missing_columns:
+    st.error(f"Input data is missing required columns: {', '.join(missing_columns)}")
+    st.info("CSV input must include at least: timestamp, department, and student_type.")
+    st.stop()
+
 if selected_department != "All":
     df = df[df["department"] == selected_department]
 if selected_student_type != "All":
     df = df[df["student_type"] == selected_student_type]
-
-df = df.sort_values("timestamp").reset_index(drop=True)
-df = add_zscore_anomaly_flags(
-    df,
-    cols=["heart_rate", "temperature_f", "spo2", "stress_index", "health_score"],
-    threshold=2.0,
-)
 
 if df.empty:
     if data_source == "CSV Upload":
@@ -162,6 +171,19 @@ if df.empty:
     else:
         st.warning("No data available for current filters. Please change sidebar filters.")
     st.stop()
+
+df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+
+if df.empty:
+    st.warning("No valid timestamp values found in current input data.")
+    st.stop()
+
+df = add_zscore_anomaly_flags(
+    df,
+    cols=["heart_rate", "temperature_f", "spo2", "stress_index", "health_score"],
+    threshold=2.0,
+)
 
 latest = df.iloc[-1]
 risk_color_map = {"Healthy": "green", "Warning": "orange", "Critical": "red"}
