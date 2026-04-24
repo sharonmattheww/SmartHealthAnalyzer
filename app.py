@@ -24,15 +24,18 @@ from utils import (
     personalized_alert_summary,
 )
 
+from database import fetch_historical_trends, save_health_record
 
-st.set_page_config(page_title="CHRIST Smart HealthBoard", page_icon="🩺", layout="wide")
 
-st.title("🩺 CHRIST University Smart HealthBoard Monitoring Dashboard")
+
+st.set_page_config(page_title="Smart HealthBoard", page_icon="🩺", layout="wide")
+
+st.title("🩺 Smart HealthBoard Monitoring Dashboard")
 st.caption("Real-time campus health intelligence with risk detection, predictive analytics, and anomaly alerts.")
 
 st.markdown(
     """
-This dashboard simulates real-time student wellness data for CHRIST University and updates continuously.
+This dashboard simulates real-time student wellness data for users and updates continuously.
 
 - Streams vitals every 2–3 seconds with rolling data storage.
 - Detects health risk levels (Healthy, Warning, Critical) using weighted scoring.
@@ -125,15 +128,17 @@ with st.sidebar:
                 ignore_index=True,
             )
             st.session_state.live_sensor_df = st.session_state.live_sensor_df.tail(rolling_window).reset_index(drop=True)
-            st.success("New live sensor reading ingested.")
+            try:
+                save_health_record(normalized_live_record)
+                st.success("New live sensor reading ingested and saved to Supabase.")
+            except Exception as exc:
+                st.error(f"Reading ingested locally, but Supabase save failed: {exc}")
 
 
 if data_source == "Simulation":
-    latest_previous = st.session_state.health_df.iloc[-1].to_dict() if not st.session_state.health_df.empty else None
-    new_record = generate_health_record(previous_row=latest_previous)
-    st.session_state.health_df = pd.concat([st.session_state.health_df, pd.DataFrame([new_record])], ignore_index=True)
-    st.session_state.health_df = st.session_state.health_df.tail(rolling_window).reset_index(drop=True)
-    source_df = st.session_state.health_df.copy()
+    source_df = fetch_historical_trends(
+        department=selected_department if selected_department != "All" else None
+    )
 elif data_source == "CSV Upload":
     source_df = st.session_state.uploaded_df.copy()
 else:
@@ -206,7 +211,7 @@ else:
 if latest["hydration"] < 45:
     st.info("💧 Hydration Reminder: Current hydration level is low. Please drink water.")
 
-student_baselines = build_student_baselines(source_df)
+student_baselines = build_student_baselines(df)
 student_baseline = None
 if not student_baselines.empty:
     matching_baseline = student_baselines[student_baselines["student_id"] == latest["student_id"]]
@@ -261,14 +266,18 @@ with line_col:
             )
         )
     trend_fig.update_layout(
-        title=f"Real-Time {parameter} Trend with Prediction",
-        xaxis_title="Time",
-        yaxis_title=parameter,
-        template="plotly_white",
-        legend_title="Series",
-        height=420,
+    xaxis=dict(
+        rangeselector=dict(
+            buttons=list([
+                dict(count=1, label="1h", step="hour", stepmode="backward"),
+                dict(count=6, label="6h", step="hour", stepmode="backward"),
+                dict(step="all")
+            ])
+        ),
+        rangeslider=dict(visible=True), # Adds a slider to zoom into specific time periods
+        type="date"
     )
-    st.plotly_chart(trend_fig, use_container_width=True)
+)
 
 with gauge_col:
     gauge = go.Figure(
